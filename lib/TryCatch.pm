@@ -119,8 +119,8 @@ sub injected_try_code {
   # try; { local $@; eval { ...
 
   return $_[0]->state_is_nested()
-       ? 'local $TryCatch::CTX = Scope::Upper::HERE; eval {' # Nested case
-       : 'local $@; eval {'
+       ? 'local $TryCatch::CTX = Scope::Upper::HERE; eval { local $SIG{__DIE__};' # Nested case
+       : 'local $@; eval { local $SIG{__DIE__};'
 }
 
 sub injected_after_try {

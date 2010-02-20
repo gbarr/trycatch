@@ -27,6 +27,11 @@ our $NEXT_EVAL_IS_TRY;
 # the current level. We are nested if @STATE > 1
 our (@STATE);
 
+our %VALID_OPTIONS = (
+  sigdie   => 1,
+  nosigdie => 0,
+);
+
 XSLoader::load(__PACKAGE__, $VERSION);
 
 use namespace::clean;
@@ -85,6 +90,7 @@ sub _parse_try {
 
   $ctx->skip_declarator;
   $ctx->skipspace;
+  $ctx->strip_options;
 
   my $linestr = $ctx->get_linestr;
 
@@ -114,13 +120,18 @@ sub _parse_try {
 
 
 sub injected_try_code {
+  my $self = shift;
   # try { ...
   # ->
   # try; { local $@; eval { ...
 
-  return $_[0]->state_is_nested()
-       ? 'local $TryCatch::CTX = Scope::Upper::HERE; eval { local $SIG{__DIE__};' # Nested case
-       : 'local $@; eval { local $SIG{__DIE__};'
+  my $code = $self->state_is_nested()
+       ? 'local $TryCatch::CTX = Scope::Upper::HERE; eval {' # Nested case
+       : 'local $@; eval {';
+
+  $code .= 'local $SIG{__DIE__};' unless $self->options->{sigdie};
+
+  return $code;
 }
 
 sub injected_after_try {
@@ -219,6 +230,22 @@ sub block_postlude {
   }
 }
 
+sub options {
+  my $self = shift;
+  $self->{options} ||= {};
+}
+
+sub strip_options {
+  my $self = shift;
+  my $proto = $self->strip_proto;
+  my $options = $self->options;
+  foreach my $opt (split /,/, $proto) {
+    $opt =~ s/^\s+|\s+$//g;
+    next unless length $opt;
+    croak "Invalid option '$opt'" unless exists $VALID_OPTIONS{$opt};
+    $options->{$opt} = $VALID_OPTIONS{$opt};
+  }
+}
 
 # turn 'catch() {' into '->catch({ TC_check_code;'
 # the '->' is added by one of the postlude hooks
@@ -454,6 +481,22 @@ the case of a 302.
 
 In the case where multiple catch blocks are present, the first one that matches
 the type constraints (if any) will executed.
+
+=head1 OPTIONS
+
+try accepts options as a comma separated list inside (), options are
+
+=over
+
+=item sigdie
+
+Normally C<try> will call C<local $SIG{__DIE__}> at the start of the eval block.
+With this option will prevent that.
+
+  $SIG{__DIE__} = sub { die "Caught $_[0]" };
+  try (sigdie) { ... }
+
+=back
 
 =head1 BENEFITS
 
